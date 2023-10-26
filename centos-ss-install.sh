@@ -61,7 +61,8 @@ install_libsodium(){
         echo -e "\033[1;32mLibsodium already installed, skip.\033[0m"
     else
         if [ ! -f libsodium-$LIBSODIUM_VER.tar.gz ];then
-            wget https://download.libsodium.org/libsodium/releases/LATEST.tar.gz -O libsodium-$LIBSODIUM_VER.tar.gz
+            # wget https://download.libsodium.org/libsodium/releases/LATEST.tar.gz -O libsodium-$LIBSODIUM_VER.tar.gz
+			wget https://github.com/xlaoshu/tools/raw/main/centos-ss/libsodium-LATEST.tar.gz -O libsodium-$LIBSODIUM_VER.tar.gz
         fi
         tar xf libsodium-$LIBSODIUM_VER.tar.gz
         pushd libsodium-$LIBSODIUM_VER
@@ -83,9 +84,8 @@ install_mbedtls(){
         echo -e "\033[1;32mMbedTLS already installed, skip.\033[0m"
     else
         if [ ! -f mbedtls-$MBEDTLS_VER-gpl.tgz ];then
-            #wget https://tls.mbed.org/download/mbedtls-$MBEDTLS_VER-gpl.tgz
-			#wget https://github.com/Mbed-TLS/mbedtls/archive/refs/tags/mbedtls-$MBEDTLS_VERtar.gz
-			wget https://down.24kplus.com/linux/mbedtls/mbedtls-$MBEDTLS_VER-gpl.tgz
+			# wget https://down.24kplus.com/linux/mbedtls/mbedtls-$MBEDTLS_VER-gpl.tgz
+			wget https://raw.githubusercontent.com/xlaoshu/tools/main/centos-ss/mbedtls-$MBEDTLS_VER-gpl.tgz
         fi
         tar xf mbedtls-$MBEDTLS_VER-gpl.tgz
         pushd mbedtls-$MBEDTLS_VER
