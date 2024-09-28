@@ -1,0 +1,11 @@
+lualib
+里面是openresty的几个插件 包括
+cjson
+LuaXML
+struct
+websocket
+
+
+acme.sh
+域名证书创建工具
+wget https://raw.githubusercontent.com/xlaoshu/tools/refs/heads/main/acme.sh && chmod +x acme.sh &&./acme.sh
