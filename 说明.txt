@@ -4,8 +4,12 @@ cjson
 LuaXML
 struct
 websocket
-
+# 安装
+wget https://github.com/xlaoshu/tools/raw/refs/heads/main/lualib.tar
+tar -xf lualib.tar -C /usr/local/openresty
+systemctl restart nginx.service
 
 acme.sh
 域名证书创建工具
+# 安装
 wget https://raw.githubusercontent.com/xlaoshu/tools/refs/heads/main/acme.sh && chmod +x acme.sh &&./acme.sh
