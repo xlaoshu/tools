@@ -4,12 +4,24 @@ cjson
 LuaXML
 struct
 websocket
-# 安装
+# 安装 插件  cjson LuaXML struct websocket
 wget https://github.com/xlaoshu/tools/raw/refs/heads/main/lualib.tar
 tar -xf lualib.tar -C /usr/local/openresty
 systemctl restart nginx.service
 
 acme.sh
 域名证书创建工具
-# 安装
+# 安装 acme.sh
 wget https://raw.githubusercontent.com/xlaoshu/tools/refs/heads/main/acme.sh && chmod +x acme.sh &&./acme.sh
+
+# 使用
+# 先停了nginx
+systemctl stop nginx.service
+# 申请证书
+bash ~/.acme.sh/acme.sh --issue -d "aaabbb.7771.top" --standalone -k ec-256 --force
+mkdir -p /usr/local/openresty/nginx/conf/ssl/
+cd /usr/local/openresty/nginx/conf/ssl/
+# 安装证书
+bash ~/.acme.sh/acme.sh --install-cert -d aaabbb.7771.top --key-file ./aaabbb.7771.top.key --fullchain-file ./aaabbb.7771.top.pem
+
+systemctl restart nginx.service
