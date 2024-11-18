@@ -4,6 +4,7 @@ cjson
 LuaXML
 struct
 websocket
+
 # 安装 插件  cjson LuaXML struct websocket
 wget https://github.com/xlaoshu/tools/raw/refs/heads/main/lualib.tar
 tar -xf lualib.tar -C /usr/local/openresty
