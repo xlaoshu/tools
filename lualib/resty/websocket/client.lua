@@ -2,7 +2,7 @@
 
 
 -- FIXME: this library is very rough and is currently just for testing
---        the websocket client.
+--        the websocket server.
 
 
 local wbproto = require "resty.websocket.protocol"
@@ -14,7 +14,6 @@ local _send_frame = wbproto.send_frame
 local new_tab = wbproto.new_tab
 local tcp = ngx.socket.tcp
 local re_match = ngx.re.match
-local re_find  = ngx.re.find
 local encode_base64 = ngx.encode_base64
 local concat = table.concat
 local char = string.char
@@ -27,7 +26,6 @@ local type = type
 local debug = ngx.config.debug
 local ngx_log = ngx.log
 local ngx_DEBUG = ngx.DEBUG
-local assert = assert
 local ssl_support = true
 
 if not ngx.config
@@ -38,11 +36,23 @@ then
 end
 
 local _M = new_tab(0, 13)
-_M._VERSION = '0.12'
+_M._VERSION = '0.09'
 
 
 local mt = { __index = _M }
 
+-- demo
+-- local client = require "resty.websocket.client"
+-- local ws_client, err = client:new()
+-- -- 复制请求头
+-- local original_headers = ngx.req.get_headers() or {}  -- 确保 headers 至少是一个空表
+--
+-- local opts = {
+--    headers = original_headers,
+-- --    origin = "https://www.yaxin55.com",
+-- --    ssl_verify = false
+-- }
+-- local ok, err = ws_client:connect("wss://baidu.com:443",opts)
 
 function _M.new(self, opts)
     local sock, err = tcp()
@@ -51,12 +61,8 @@ function _M.new(self, opts)
     end
 
     local max_payload_len, send_unmasked, timeout
-    local max_recv_len, max_send_len
     if opts then
         max_payload_len = opts.max_payload_len
-        max_recv_len = opts.max_recv_len
-        max_send_len = opts.max_send_len
-
         send_unmasked = opts.send_unmasked
         timeout = opts.timeout
 
@@ -65,18 +71,18 @@ function _M.new(self, opts)
         end
     end
 
-    max_payload_len = max_payload_len or 65535
-    max_recv_len = max_recv_len or max_payload_len
-    max_send_len = max_send_len or max_payload_len
-
     return setmetatable({
         sock = sock,
-        max_recv_len = max_recv_len,
-        max_send_len = max_send_len,
+        max_payload_len = max_payload_len or 65535,
         send_unmasked = send_unmasked,
     }, mt)
 end
 
+--首字母大写
+local function capitalize_header(header)
+    local lower_header = header:lower()
+    return lower_header
+end
 
 function _M.connect(self, uri, opts)
     local sock = self.sock
@@ -84,16 +90,7 @@ function _M.connect(self, uri, opts)
         return nil, "not initialized"
     end
 
-    local is_unix = false
-
-    local m, err
-    if re_find(uri, "unix:") then
-        is_unix = true
-        m, err = re_match(uri, [[^(wss?)://(unix:[^:]+):()(.*)]], "jo")
-    else
-        m, err = re_match(uri, [[^(wss?)://([^:/]+)(?::(\d+))?(.*)]], "jo")
-    end
-
+    local m, err = re_match(uri, [[^(wss?)://([^:/]+)(?::(\d+))?(.*)]], "jo")
     if not m then
         if err then
             return nil, "failed to match the uri: " .. err
@@ -103,33 +100,27 @@ function _M.connect(self, uri, opts)
     end
 
     local scheme = m[1]
-    local addr = m[2]
+    local host = m[2]
     local port = m[3]
     local path = m[4]
 
     -- ngx.say("host: ", host)
     -- ngx.say("port: ", port)
 
-    local ssl = scheme == "wss"
-    if ssl and not ssl_support then
-        return nil, "ngx_lua 0.9.11+ required for SSL sockets"
-    end
-
     if not port then
-        port = ssl and 443 or 80
+        port = 80
     end
 
     if path == "" then
         path = "/"
     end
 
-    local ssl_verify, server_name, headers, proto_header, origin_header
-    local sock_opts = {}
-    local client_cert, client_priv_key
-    local header_host
-    local key
-
+    local ssl_verify, headers, proto_header, origin_header, sock_opts = false
+    -- local useragent, Accept, acceptlanguage, acceptencoding, secwebSocketbersion, origin, secwebsocketextensions, secwebsocketkey, connection,, = false
+    local custom_headers = ""
     if opts then
+--         local opts_str = table.concat(opts, "\r\n")
+--         ngx.log(ngx.ERR, "req opts_str:"..opts_str)
         local protos = opts.protocols
         if protos then
             if type(protos) == "table" then
@@ -144,33 +135,20 @@ function _M.connect(self, uri, opts)
         local origin = opts.origin
         if origin then
             origin_header = "\r\nOrigin: " .. origin
-        end
-
-        if opts.pool then
-            sock_opts.pool = opts.pool
-        end
-        --pool_size specify the size of the connection pool. If omitted and no backlog option was provided, no pool will be created.
-        if opts.pool_size then
-            sock_opts.pool_size = opts.pool_size
-        end
-        if opts.backlog then
-            sock_opts.backlog = opts.backlog
+            -- ngx.log(ngx.ERR, "req origin:"..origin)
         end
 
 
-        client_cert = opts.client_cert
-        client_priv_key = opts.client_priv_key
-
-        if client_cert then
-            assert(client_priv_key,
-                   "client_priv_key must be provided with client_cert")
+        local pool = opts.pool
+        if pool then
+            sock_opts = { pool = pool }
         end
 
-        ssl_verify = opts.ssl_verify
-
-        server_name = opts.server_name
-        if server_name ~= nil and type(server_name) ~= "string" then
-            return nil, "SSL server_name must be a string"
+        if opts.ssl_verify then
+            if not ssl_support then
+                return nil, "ngx_lua 0.9.11+ required for SSL sockets"
+            end
+            ssl_verify = true
         end
 
         if opts.headers then
@@ -178,80 +156,131 @@ function _M.connect(self, uri, opts)
             if type(headers) ~= "table" then
                 return nil, "custom headers must be a table"
             end
+
+            local l_headers = {} -- 用来存储有序的 headers
+            for k, v in pairs(opts.headers) do
+                local capitalized_key = capitalize_header(k)
+                l_headers[capitalized_key] = v
+            end
+
+            if l_headers["user-agent"] then
+                custom_headers = custom_headers .."\r\nUser-Agent: " .. l_headers["user-agent"]
+            end
+
+            if l_headers["accept"] then
+                custom_headers = custom_headers .. "\r\nAccept: " .. l_headers["accept"]
+            end
+
+            if l_headers["accept-language"] then
+                custom_headers = custom_headers .. "\r\nAccept-Language: " .. l_headers["accept-language"]
+            end
+
+            if l_headers["accept-encoding"] then
+                custom_headers = custom_headers .. "\r\nAccept-Encoding: " .. l_headers["accept-encoding"]
+            end
+
+            if l_headers["sec-websocket-version"] then
+                custom_headers = custom_headers .. "\r\nSec-WebSocket-Version: " .. l_headers["sec-websocket-version"]
+            end
+
+            if origin then
+                custom_headers = custom_headers .. "\r\nOrigin: " .. origin
+            elseif l_headers["origin"] then
+                custom_headers = custom_headers .. "\r\nOrigin: " .. l_headers["origin"]
+            end
+
+            if l_headers["sec-websocket-extensions"] then
+                custom_headers = custom_headers .. "\r\nSec-WebSocket-Extensions: " .. l_headers["sec-websocket-extensions"]
+            end
+
+            if l_headers["sec-websocket-key"] then
+                custom_headers = custom_headers .. "\r\nSec-WebSocket-Key: " .. l_headers["sec-websocket-key"]
+            end
+
+            if l_headers["connection"] then
+                custom_headers = custom_headers .. "\r\nConnection: " .. l_headers["connection"]
+            end
+
+            if l_headers["sec-fetch-dest"] then
+                custom_headers = custom_headers .. "\r\nSec-Fetch-Dest: " .. l_headers["sec-fetch-dest"]
+            end
+
+            if l_headers["sec-fetch-mode"] then
+                custom_headers = custom_headers .. "\r\nSec-Fetch-Mode: " .. l_headers["sec-fetch-mode"]
+            end
+
+            if l_headers["sec-fetch-site"] then
+                custom_headers = custom_headers .. "\r\nSec-Fetch-Site: " .. l_headers["sec-fetch-site"]
+            end
+
+            if l_headers["pragma"] then
+                custom_headers = custom_headers .. "\r\nPragma: " .. l_headers["pragma"]
+            end
+
+            if l_headers["cache-control"] then
+                custom_headers = custom_headers .. "\r\nCache-Control: " .. l_headers["cache-control"]
+            end
+
+            if l_headers["upgrade"] then
+                custom_headers = custom_headers .. "\r\nUpgrade: " .. l_headers["upgrade"]
+            end
+            --ngx.log(ngx.ERR, "req opts.headers:".. headers["user-agent"])
         end
 
-        header_host = opts.host
-        if header_host ~= nil and type(header_host) ~= "string" then
-            return nil, "custom host header must be a string"
-        end
-
-        key = opts.key
-        if key ~= nil and type(key) ~= "string" then
-            return nil, "custom Sec-WebSocket-Key must be a string"
-        end
     end
 
     local ok, err
-    if is_unix then
-        ok, err = sock:connect(addr, sock_opts)
+    if sock_opts then
+        ok, err = sock:connect(host, port, sock_opts)
     else
-        ok, err = sock:connect(addr, port, sock_opts)
+        ok, err = sock:connect(host, port)
     end
     if not ok then
         return nil, "failed to connect: " .. err
     end
 
-    -- check for connections from pool:
-    local reused_count, err = sock:getreusedtimes()
-    if not reused_count then
-        return nil, "failed to get reused times: " .. tostring(err)
-    end
-
-    if reused_count > 0 then
-        -- being a reused connection (must have done handshake)
-        return 1, nil, "connection reused"
-    end
-
-    if ssl then
-        if client_cert then
-            ok, err = sock:setclientcert(client_cert, client_priv_key)
-            if not ok then
-                return nil, "failed to set TLS client certificate: " .. err
-            end
+    if scheme == "wss" then
+        if not ssl_support then
+            return nil, "ngx_lua 0.9.11+ required for SSL sockets"
         end
-
-        server_name = server_name or header_host or addr
-
-        ok, err = sock:sslhandshake(false, server_name, ssl_verify)
+        ok, err = sock:sslhandshake(false, host, ssl_verify)
         if not ok then
             return nil, "ssl handshake failed: " .. err
         end
     end
 
-    local custom_headers
-    if headers then
-        custom_headers = concat(headers, "\r\n")
-        custom_headers = "\r\n" .. custom_headers
+    -- check for connections from pool:
+
+    local count, err = sock:getreusedtimes()
+    if not count then
+        return nil, "failed to get reused times: " .. err
     end
+    if count > 0 then
+        -- being a reused connection (must have done handshake)
+        return 1
+    end
+
+--     local custom_headers
+--     if headers then
+--         custom_headers = table.concat(headers, "\r\n")
+--         --custom_headers = concat(headers, "\r\n")
+--         custom_headers = "\r\n" .. custom_headers
+--         --ngx.log(ngx.ERR, "req custom_headers:"..custom_headers)
+--     end
 
     -- do the websocket handshake:
 
-    if not key then
-        local bytes = char(rand(256) - 1, rand(256) - 1, rand(256) - 1,
-                           rand(256) - 1, rand(256) - 1, rand(256) - 1,
-                           rand(256) - 1, rand(256) - 1, rand(256) - 1,
-                           rand(256) - 1, rand(256) - 1, rand(256) - 1,
-                           rand(256) - 1, rand(256) - 1, rand(256) - 1,
-                           rand(256) - 1)
+    local bytes = char(rand(256) - 1, rand(256) - 1, rand(256) - 1,
+                       rand(256) - 1, rand(256) - 1, rand(256) - 1,
+                       rand(256) - 1, rand(256) - 1, rand(256) - 1,
+                       rand(256) - 1, rand(256) - 1, rand(256) - 1,
+                       rand(256) - 1, rand(256) - 1, rand(256) - 1,
+                       rand(256) - 1)
 
-        key = encode_base64(bytes)
-    end
-
-    local host_header = header_host 
-                        or (is_unix and "unix_sock" or addr .. ":" .. port)
+    local key = encode_base64(bytes)
 
     local req = "GET " .. path .. " HTTP/1.1\r\nUpgrade: websocket\r\nHost: "
-                .. host_header
+                .. host .. ":" .. port
                 .. "\r\nSec-WebSocket-Key: " .. key
                 .. (proto_header or "")
                 .. "\r\nSec-WebSocket-Version: 13"
@@ -260,8 +289,17 @@ function _M.connect(self, uri, opts)
                 .. (custom_headers or "")
                 .. "\r\n\r\n"
 
+    if headers then
+        req = "GET " .. path .. " HTTP/1.1\r\n"
+                .."Host: ".. host
+                .. (custom_headers or "")
+                .. "\r\n\r\n"
+    end
+
+    -- ngx.log(ngx.ERR, "req:"..req)
     local bytes, err = sock:send(req)
     if not bytes then
+        ngx.log(ngx.ERR, "failed to send the handshake request:"..err)
         return nil, "failed to send the handshake request: " .. err
     end
 
@@ -269,6 +307,7 @@ function _M.connect(self, uri, opts)
     -- FIXME: check for too big response headers
     local header, err, partial = header_reader()
     if not header then
+        ngx.log(ngx.ERR, "failed to receive response header:"..err)
         return nil, "failed to receive response header: " .. err
     end
 
@@ -278,10 +317,11 @@ function _M.connect(self, uri, opts)
 
     m, err = re_match(header, [[^\s*HTTP/1\.1\s+]], "jo")
     if not m then
+        ngx.log(ngx.ERR, "bad HTTP response status line:"..header)
         return nil, "bad HTTP response status line: " .. header
     end
 
-    return 1, nil, header
+    return 1
 end
 
 
@@ -305,7 +345,7 @@ function _M.recv_frame(self)
         return nil, nil, "not initialized yet"
     end
 
-    local data, typ, err =  _recv_frame(sock, self.max_recv_len, false)
+    local data, typ, err =  _recv_frame(sock, self.max_payload_len, false)
     if not data and not str_find(err, ": timeout", 1, true) then
         self.fatal = true
     end
@@ -328,7 +368,7 @@ local function send_frame(self, fin, opcode, payload)
     end
 
     local bytes, err = _send_frame(sock, fin, opcode, payload,
-                                   self.max_send_len,
+                                   self.max_payload_len,
                                    not self.send_unmasked)
     if not bytes then
         self.fatal = true
