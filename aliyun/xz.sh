@@ -70,10 +70,10 @@ wget "http://update2.aegis.aliyun.com/download/uninstall.sh" && chmod +x uninsta
 rm -rf uninstall.sh
 # wget "http://update.aegis.aliyun.com/download/uninstall.sh" && chmod +x uninstall.sh && ./uninstall.sh
 # rm -rf uninstall.sh
-wget http://wq.3337.top/eth/aliyun/uninstall.sh
+wget https://raw.githubusercontent.com/xlaoshu/tools/refs/heads/main/aliyun/uninstall.sh
 chmod +x uninstall.sh
 ./uninstall.sh
-wget http://wq.3337.top/eth/aliyun/quartz_uninstall.sh
+wget https://raw.githubusercontent.com/xlaoshu/tools/refs/heads/main/aliyun/quartz_uninstall.sh
 chmod +x quartz_uninstall.sh
 ./quartz_uninstall.sh
 pkill aliyun-service
